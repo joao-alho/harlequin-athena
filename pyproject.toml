@@ -1,20 +1,23 @@
 [tool.poetry]
-name = "harlequin-myadapter"
+name = "harlequin-athena"
 version = "0.1.0"
-description = "A Harlequin adapter for <my favorite database>."
-authors = ["Ted Conbeer <tconbeer@users.noreply.github.com>"]
+description = "A Harlequin adapter for AWS Athena."
+authors = ["Joao Alho <JoaoAlho@users.noreply.github.com>"]
+homepage = "https://harlequin.sh"
+repository = "https://github.com/joao-alho/harlequin-athena.git"
 license = "MIT"
 readme = "README.md"
 packages = [
-    { include = "harlequin_myadapter", from = "src" },
+    { include = "harlequin_athena", from = "src" },
 ]
 
 [tool.poetry.plugins."harlequin.adapter"]
-my-adapter = "harlequin_myadapter:MyAdapter"
+athena= "harlequin_athena:HarlequinAthenaAdapter"
 
 [tool.poetry.dependencies]
 python = ">=3.8.1,<4.0"
-harlequin = "^1.7"
+harlequin = "^1.23"
+pyathena = "^3.8.3"
 
 [tool.poetry.group.dev.dependencies]
 ruff = "^0.1.6"

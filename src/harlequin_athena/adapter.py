@@ -110,27 +110,19 @@ class HarlequinAthenaConnection(HarlequinConnection):
     def get_catalog(self) -> Catalog:
         databases = self._get_databases()
         db_items: list[CatalogItem] = []
+        glue_client = boto3.client("glue")
         for db in databases:
-            relations = self._get_relations(db)
+            tbls = glue_client.get_tables(DatabaseName=db)["TableList"]
+            relations = self._get_relations(tbls)
             rel_items: list[CatalogItem] = []
-            for rel, rel_type in relations:
-                cols = self._get_columns(db, rel)
-                col_items = [
-                    CatalogItem(
-                        qualified_identifier=f'"awsdatacatalog"."{db}"."{rel}"."{col}"',
-                        query_name=f"{col}",
-                        label=col,
-                        type_label=self.get_short_col_type(col_type),
-                    )
-                    for col, col_type in cols
-                ]
+            for rel in relations:
                 rel_items.append(
                     CatalogItem(
-                        qualified_identifier=f'"awsdatacatalog"."{db}"."{rel}"',
-                        query_name=f'"awsdatacatalog"."{db}"."{rel}"',
-                        label=rel,
-                        type_label=rel_type,
-                        children=col_items,
+                        qualified_identifier=f'"awsdatacatalog"."{db}"."{rel["rel_name"]}"',
+                        query_name=f'"awsdatacatalog"."{db}"."{rel["rel_name"]}"',
+                        label=rel["rel_name"],
+                        type_label=rel["rel_type"],
+                        children=self._get_columns(db, rel["rel_name"], rel["columns"]),
                     )
                 )
             db_items.append(
@@ -153,53 +145,37 @@ class HarlequinAthenaConnection(HarlequinConnection):
         ]
         return Catalog(items=catalog_items)
 
-    def _get_columns(self, schema: str, rel: str) -> list[tuple[str, str]]:
-        columns = []
-        if self.use_glue_catalog:
-            glue_client = boto3.client("glue")
-            tbl = glue_client.get_table(DatabaseName=schema, Name=rel)["Table"]
-            columns += [
-                (c["Name"], c["Type"]) for c in tbl["StorageDescriptor"]["Columns"]
-            ]
-        else:
-            cur = self.conn.cursor()
-            query = f"""
-                    SELECT
-                        column_name,
-                        data_type 
-                    FROM "awscatalog"."information_schema"."columns"
-                    WHERE 
-                        table_schema = '{schema}'
-                        and table_name = '{rel}'
-                """
-            cur.execute(query)
-            columns += cur.fetchall()
-            cur.close()
-        return columns
+    def _get_columns(
+        self,
+        db: str,
+        rel: str,
+        cols: list[tuple(str, str)],
+    ) -> list[CatalogItem]:
+        return [
+            CatalogItem(
+                qualified_identifier=f'"awsdatacatalog"."{db}"."{rel}"."{col_name}"',
+                query_name=f"{col_name}",
+                label=col_name,
+                type_label=self.get_short_col_type(col_type),
+            )
+            for col_name, col_type in cols
+        ]
 
-    def _get_relations(self, schema: str) -> list[tuple[str, str]]:
-        relations = []
-        if self.use_glue_catalog:
-            glue_client = boto3.client("glue")
-            tbls = glue_client.get_tables(DatabaseName=schema)["TableList"]
-            relations += [
-                (t["Name"], "t" if "TABLE" in t["TableType"] else "v") for t in tbls
-            ]
-        else:
-            cur = self.conn.cursor()
-            query = f"""
-            SELECT 
-              table_name,
-              case
-                when table_type like '%TABLE' then 't'
-                else 'v'
-              end as table_type
-            from information_schema.tables
-            where table_schema = '{schema}'"""
-            cur.execute(query)
-            results = cur.fetchall()
-            cur.close()
-            relations += [result for result in results]
+    def _get_relations(self, tbls: list[Any]) -> dict():
+        relations = [
+            {
+                "rel_name": t["Name"],
+                "rel_type": "t" if "TABLE" in t["TableType"] else "v",
+                "columns": [
+                    (
+                        c["Name"],
+                        c["Type"],
+                    )
+                    for c in t["StorageDescriptor"]["Columns"]
+                ],
+            }
+            for t in tbls
+        ]
         return relations
 
     def _get_databases(self) -> list[tuple[str]]:
